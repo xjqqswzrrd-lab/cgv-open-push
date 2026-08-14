@@ -8,6 +8,11 @@ from typing import Any
 
 import requests
 
+try:
+    from google.cloud import storage
+except ImportError:  # 로컬 실행에서는 Cloud Storage 없이 동작
+    storage = None
+
 CGV_CO_CD = "A420"
 CGV_SITE_DATES_API = "https://cgv.co.kr/api/v1/booking/searchSiteScnscYmdListBySite"
 CGV_IMAX_EXISTS_API = "https://cgv.co.kr/api/v1/booking/searchSscnsSchdExistList"
@@ -18,6 +23,10 @@ TARGETS = {
 }
 POLL_SECONDS = max(60, int(os.getenv("POLL_SECONDS", "300")))
 STATE_PATH = Path(os.getenv("STATE_PATH", "state.json"))
+STATE_BACKEND = os.getenv("STATE_BACKEND", "local").lower()
+GCS_BUCKET = os.getenv("GCS_BUCKET", "").strip()
+GCS_BLOB = os.getenv("GCS_BLOB", "cgv-imax/state.json").strip()
+RUN_ONCE = os.getenv("RUN_ONCE", "0") == "1"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
 
@@ -36,6 +45,18 @@ HEADERS = {
 
 
 def load_state() -> dict[str, list[str]]:
+    if STATE_BACKEND == "gcs":
+        if storage is None or not GCS_BUCKET:
+            raise RuntimeError("STATE_BACKEND=gcs에는 google-cloud-storage와 GCS_BUCKET이 필요합니다.")
+        try:
+            client = storage.Client()
+            text = client.bucket(GCS_BUCKET).blob(GCS_BLOB).download_as_text(encoding="utf-8")
+            data = json.loads(text)
+            return data if isinstance(data, dict) else {}
+        except Exception as exc:
+            if "404" in str(exc) or "Not Found" in str(exc):
+                return {}
+            raise
     if not STATE_PATH.exists():
         return {}
     try:
@@ -47,8 +68,16 @@ def load_state() -> dict[str, list[str]]:
 
 
 def save_state(state: dict[str, list[str]]) -> None:
+    payload = json.dumps(state, ensure_ascii=False, indent=2)
+    if STATE_BACKEND == "gcs":
+        if storage is None or not GCS_BUCKET:
+            raise RuntimeError("STATE_BACKEND=gcs에는 google-cloud-storage와 GCS_BUCKET이 필요합니다.")
+        storage.Client().bucket(GCS_BUCKET).blob(GCS_BLOB).upload_from_string(
+            payload, content_type="application/json; charset=utf-8"
+        )
+        return
     temp = STATE_PATH.with_suffix(".tmp")
-    temp.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    temp.write_text(payload, encoding="utf-8")
     temp.replace(STATE_PATH)
 
 
@@ -137,12 +166,19 @@ def check_once(session: requests.Session, state: dict[str, list[str]], initializ
 
 
 def main() -> None:
-    log.info("광교·용산 IMAX 알리미 시작: %ss 주기", POLL_SECONDS)
+    log.info("광교·용산 IMAX 알리미 시작: %ss 주기, run_once=%s", POLL_SECONDS, RUN_ONCE)
     session = requests.Session()
     session.headers.update(HEADERS)
     state = load_state()
-    state, _ = check_once(session, state, initialize=not bool(state))
+    state, messages = check_once(session, state, initialize=not bool(state))
     save_state(state)
+    for message in messages:
+        try:
+            send_telegram(message)
+        except Exception:
+            log.exception("Telegram 전송 실패")
+    if RUN_ONCE:
+        return
     while True:
         time.sleep(POLL_SECONDS)
         state, messages = check_once(session, state, initialize=False)
