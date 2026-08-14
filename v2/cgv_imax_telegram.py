@@ -116,14 +116,16 @@ def choose_theater(page, name: str) -> None:
     search.fill(name)
     page.wait_for_timeout(700)
 
-    result = page.locator("button:visible").filter(has_text=re.compile(f"^{re.escape(name)}$"))
-    result.last.wait_for(state="visible", timeout=15000)
-    result.last.click()
+    # 검색 결과 목록과 하단 선택 목록에 같은 지점명이 동시에 존재할 수 있다.
+    # 검색창 바로 다음의 검색 결과 ul에서만 정확히 일치하는 첫 항목을 클릭한다.
+    result = page.locator("input#search1").locator("xpath=following::ul[1]").get_by_role("button", name=name, exact=True).first
+    result.wait_for(state="visible", timeout=15000)
+    result.click()
 
-    # 검색 결과 클릭 직후 선택 칩과 하단 확인 버튼이 비동기로 생성된다.
-    confirm = page.locator("button:visible").filter(has_text=re.compile(r"^극장선택$"))
-    confirm.last.wait_for(state="visible", timeout=15000)
-    confirm.last.click()
+    # 검색 결과 클릭 후 하단 선택 목록과 확정 버튼이 비동기로 생성된다.
+    confirm = page.locator("button.btn.btn-100.fill-black").filter(has_text=re.compile(r"^극장선택$"))
+    confirm.wait_for(state="visible", timeout=15000)
+    confirm.click()
     page.wait_for_timeout(1000)
 
     page.locator("input#search1").wait_for(state="hidden", timeout=15000)
