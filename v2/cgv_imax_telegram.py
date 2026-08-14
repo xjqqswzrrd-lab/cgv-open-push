@@ -86,10 +86,12 @@ def fetch_visible_dates(page, label: str, site_no: str) -> list[str]:
     page.goto(url, wait_until="domcontentloaded", timeout=60000)
     selector = "button[class*='dayScroll_scrollItem']"
     try:
-        page.wait_for_selector(selector, state="attached", timeout=30000)
+        page.wait_for_selector(selector, state="attached", timeout=60000)
     except PlaywrightTimeoutError as exc:
-        raise RuntimeError(f"{label} 날짜 버튼을 찾지 못했습니다.") from exc
-    page.wait_for_timeout(1200)
+        title = page.title()
+        body = page.locator("body").inner_text(timeout=5000)[:300].replace("\n", " ")
+        raise RuntimeError(f"{label} 날짜 버튼을 찾지 못했습니다. title={title!r}, body={body!r}") from exc
+    page.wait_for_timeout(1500)
     buttons = page.locator(selector).evaluate_all(
         """els => els.map(el => ({
             number: (el.querySelector('[class*="dayScroll_number"]')?.textContent || '').trim(),
@@ -123,8 +125,20 @@ def run_once(state: dict[str, list[str]]) -> tuple[dict[str, list[str]], list[st
     alerts: list[str] = []
     initialize = not bool(state)
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
-        page = browser.new_page(locale="ko-KR", timezone_id="Asia/Seoul")
+        browser = playwright.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-blink-features=AutomationControlled"],
+        )
+        context = browser.new_context(
+            locale="ko-KR",
+            timezone_id="Asia/Seoul",
+            user_agent=(
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+            ),
+            extra_http_headers={"Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7"},
+        )
+        page = context.new_page()
         try:
             for label, site_no in TARGETS.items():
                 try:
@@ -143,6 +157,7 @@ def run_once(state: dict[str, list[str]]) -> tuple[dict[str, list[str]], list[st
                 except Exception:
                     log.exception("%s 확인 실패", label)
         finally:
+            context.close()
             browser.close()
     return new_state, alerts
 
