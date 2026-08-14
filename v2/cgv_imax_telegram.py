@@ -93,6 +93,23 @@ def visible(locator) -> bool:
         return False
 
 
+def dismiss_blocking_modals(page) -> None:
+    # CGV는 새 세션에서 하단 광고 모달(cgv-bot-modal)을 자동으로 띄울 수 있다.
+    # 이 모달이 영화 카드 위에서 pointer event를 가로채므로 영화 선택 전에 닫는다.
+    modal = page.locator("div[role='dialog'].cgv-bot-modal.active")
+    if not modal.count():
+        return
+    close = modal.locator("button.btn-center-close, button[title='팝업 닫기']").first
+    if close.count() and visible(close):
+        close.click(force=True, timeout=10000)
+        modal.wait_for(state="hidden", timeout=10000)
+        page.wait_for_timeout(500)
+        log.info("초기 CGV 광고 모달 닫음")
+    elif modal.is_visible():
+        page.keyboard.press("Escape")
+        modal.wait_for(state="hidden", timeout=10000)
+
+
 def select_movie(page) -> None:
     # 영화 카드는 button이 아니라 swiper-slide div이며, 숨김 복제 카드도 함께 렌더링된다.
     # 실제 화면에 보이는 오디세이 slide 자체를 클릭한다.
@@ -229,6 +246,7 @@ def collect_ui_dates() -> dict[str, dict[str, list[str] | str]]:
         try:
             page.goto(BOOKING_URL, wait_until="domcontentloaded", timeout=60000)
             page.wait_for_timeout(2500)
+            dismiss_blocking_modals(page)
             select_movie(page)  # 실행당 한 번만 선택한다.
             results = {}
             for name in TARGETS:
