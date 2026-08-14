@@ -116,20 +116,17 @@ def choose_theater(page, name: str) -> None:
     search.fill(name)
     page.wait_for_timeout(700)
 
-    result = page.get_by_role("button", name=name, exact=True)
-    if result.count() == 0:
-        raise RuntimeError(f"극장 검색 결과 없음: {name}")
+    result = page.locator("button:visible").filter(has_text=re.compile(f"^{re.escape(name)}$"))
+    result.last.wait_for(state="visible", timeout=15000)
     result.last.click()
-    page.wait_for_timeout(800)
 
-    # 어떤 UI 변형에서는 결과 선택 뒤 하단 확인 버튼을 한 번 더 눌러야 한다.
-    confirm = page.get_by_role("button", name="극장선택", exact=True)
-    if confirm.count() and visible(confirm.last):
-        confirm.last.click()
-        page.wait_for_timeout(1000)
+    # 검색 결과 클릭 직후 선택 칩과 하단 확인 버튼이 비동기로 생성된다.
+    confirm = page.locator("button:visible").filter(has_text=re.compile(r"^극장선택$"))
+    confirm.last.wait_for(state="visible", timeout=15000)
+    confirm.last.click()
+    page.wait_for_timeout(1000)
 
-    if visible(page.locator("input#search1")):
-        raise RuntimeError(f"극장 선택 모달이 닫히지 않음: {name}")
+    page.locator("input#search1").wait_for(state="hidden", timeout=15000)
     if page.get_by_text(name, exact=True).count() == 0:
         raise RuntimeError(f"선택된 극장명이 화면에 없음: {name}")
     log.info("극장 선택 완료: %s", name)
