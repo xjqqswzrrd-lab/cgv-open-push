@@ -42,7 +42,7 @@ function checkNow() {
       const currentDates = fetchImaxDates_(siteNo);
       nextState[siteNo] = currentDates;
       if (!Object.prototype.hasOwnProperty.call(previousState, siteNo)) {
-        continue;
+        return;
       }
       const previous = previousState[siteNo] || [];
       const added = currentDates.filter(function(date) {
