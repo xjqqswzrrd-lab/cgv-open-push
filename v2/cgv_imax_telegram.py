@@ -94,11 +94,14 @@ def visible(locator) -> bool:
 
 
 def select_movie(page) -> None:
-    # CGV는 동일한 영화 카드를 숨겨진 복제 영역에도 렌더링한다. :visible로 실제 화면 카드만 선택한다.
-    card = page.locator(f'button:has(img[alt*="{MOVIE_NAME}"]):visible').first
+    # 영화 카드는 button이 아니라 swiper-slide div이며, 숨김 복제 카드도 함께 렌더링된다.
+    # 실제 화면에 보이는 오디세이 slide 자체를 클릭한다.
+    card = page.locator(f'div.swiper-slide:has(img[alt*="{MOVIE_NAME}"]):visible').first
     card.wait_for(state="visible", timeout=60000)
-    card.click()
-    page.wait_for_timeout(1500)
+    card.click(position={"x": 10, "y": 10})
+    page.wait_for_timeout(1800)
+    if page.locator(f'div.swiper-slide:has(img[alt*="{MOVIE_NAME}"]):visible').count() == 0:
+        raise RuntimeError(f"화면에 보이는 영화 카드가 없습니다: {MOVIE_NAME}")
     log.info("영화 선택 완료: %s", MOVIE_NAME)
 
 
@@ -116,21 +119,31 @@ def choose_theater(page, name: str) -> None:
     search.fill(name)
     page.wait_for_timeout(700)
 
-    # 검색 결과 목록과 하단 선택 목록에 같은 지점명이 동시에 존재할 수 있다.
-    # 검색창 바로 다음의 검색 결과 ul에서만 정확히 일치하는 첫 항목을 클릭한다.
-    result = page.locator("input#search1").locator("xpath=following::ul[1]").get_by_role("button", name=name, exact=True).first
+    # 검색 결과와 하단 선택 목록에는 같은 지점명이 존재할 수 있다.
+    # 먼저 검색 결과 목록의 정확한 항목을 클릭한다.
+    result = page.locator(".search-result button").filter(has_text=re.compile(rf"^{re.escape(name)}$")).first
     result.wait_for(state="visible", timeout=15000)
     result.click()
 
-    # 검색 결과 클릭 후 하단 선택 목록과 확정 버튼이 비동기로 생성된다.
-    confirm = page.locator("button.btn.btn-100.fill-black").filter(has_text=re.compile(r"^극장선택$"))
+    # 검색 결과 클릭만으로는 선택이 확정되지 않는다. 실제 화면에 생성된
+    # 하단 목록의 동일 지점 버튼을 한 번 더 클릭해야 선택 칩이 생긴다.
+    selected_item = page.locator("div[class*='bottom_listCon'] button").filter(
+        has_text=re.compile(rf"^{re.escape(name)}$")
+    ).first
+    selected_item.wait_for(state="visible", timeout=15000)
+    selected_item.click()
+
+    # 선택 칩 생성 후 검정색 극장선택 확정 버튼이 나타난다.
+    confirm = page.locator("button.btn.btn-100.fill-black").filter(
+        has_text=re.compile(r"^극장선택$")
+    ).first
     confirm.wait_for(state="visible", timeout=15000)
     confirm.click()
-    page.wait_for_timeout(1000)
 
     page.locator("input#search1").wait_for(state="hidden", timeout=15000)
-    if page.get_by_text(name, exact=True).count() == 0:
-        raise RuntimeError(f"선택된 극장명이 화면에 없음: {name}")
+    page.locator("div[class*='dayScroll_container']:visible").first.wait_for(
+        state="visible", timeout=30000
+    )
     log.info("극장 선택 완료: %s", name)
 
 
