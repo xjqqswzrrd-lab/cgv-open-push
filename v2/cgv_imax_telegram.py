@@ -94,7 +94,8 @@ def visible(locator) -> bool:
 
 
 def select_movie(page) -> None:
-    card = page.locator("button").filter(has=page.locator(f'img[alt*="{MOVIE_NAME}"]')).first
+    # CGV는 동일한 영화 카드를 숨겨진 복제 영역에도 렌더링한다. :visible로 실제 화면 카드만 선택한다.
+    card = page.locator(f'button:has(img[alt*="{MOVIE_NAME}"]):visible').first
     card.wait_for(state="visible", timeout=60000)
     card.click()
     page.wait_for_timeout(1500)
